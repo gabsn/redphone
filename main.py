@@ -59,8 +59,7 @@ class AudioPlayer:
             stream.write(data)
             data = f.readframes(chunk)
 
-        #stop stream
-        stream.stop_stream()
+        #stop stream stream.stop_stream()
         stream.close()
 
         #close PyAudio
@@ -120,7 +119,10 @@ class SlackListener:
             watson = TextToSpeech()
             voice = self.get_voice(event.get('user'))
             response = watson.synthesize(msg, voice)
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except:
+                return
 
             speaker = AudioPlayer()
             speaker.say(response.content)
