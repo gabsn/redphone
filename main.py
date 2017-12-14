@@ -1,44 +1,120 @@
+
+import requests
 import os
 import time
+import io
 import slackclient
+import pyaudio
+import wave
 
-SLACK_TOKEN = os.environ.get('SLACK_BOT_TOKEN')
-CHANNEL = 'outage'
+class TextToSpeech:
+    def __init__(self):
+        self.url = "https://stream.watsonplatform.net/text-to-speech/api"
+        self.username = os.environ.get('WATSON_USERNAME')
+        self.password = os.environ.get('WATSON_PASSWORD')
+        self.voices = {
+            'portuguese': 'pt-BR_IsabelaVoice',             # female
+            'castilian_spanish_m': 'es-ES_EnriqueVoice',    # male
+            'castilian_spanish_f': 'es-ES_LauraVoice',      # female
+            'latin_spanish': 'es-LA_SofiaVoice',            # female
+            'na_spanish': 'es-US_SofiaVoice',               # female
+            'french': 'fr-FR_ReneeVoice',                   # female
+            'german_f': 'de-DE_BirgitVoice',                # female
+            'german_m': 'de-DE_DieterVoice',                # male
+            'italian': 'it-IT_FrancescaVoice',              # female
+            'japanese': 'ja-JP_EmiVoice',                   # female
+            'british': 'en-GB_KateVoice',                   # female
+            'american_f_1': 'en-US_LisaVoice',              # female
+            'american_f_2': 'en-US_AllisonVoice',           # female
+            'american_m': 'en-US_MichaelVoice'              # male
+        }
 
-# initialize slack client
-sc = slackclient.SlackClient(SLACK_TOKEN)
+    def synthesize(self, text, voice):
+        return requests.get(self.url + "/v1/synthesize",
+            auth=(self.username, self.password),
+            params={'text': text, 'voice': self.voices[voice], 'accept': 'audio/wav'},
+            stream=True, verify=False
+        )
 
-# check if everything is alright
-is_ok = sc.api_call("users.list").get('ok')
-print(is_ok)
+class AudioPlayer:
+    def say(self, data_bytes):
+        #define stream chunk
+        chunk = 1024
 
-def get_channel_name(channel_id):
-    channel_info = sc.api_call("channels.info", channel=channel_id)
-    return channel_info["channel"]["name"]
+        #open a wav format music
+        f = wave.open(io.BytesIO(data_bytes),"rb")
 
-def write_to_chan(msg):
-    sc.api_call(
-            "chat.postMessage",
-            channel="#"+CHANNEL,
-            text=msg)
+        #instantiate PyAudio
+        p = pyaudio.PyAudio()
+        #open stream
+        stream = p.open(format = p.get_format_from_width(f.getsampwidth()),
+                        channels = f.getnchannels(),
+                        rate = f.getframerate(),
+                        output = True)
+        #read data
+        data = f.readframes(chunk)
 
-def handle_event(event):
-    #print(event)
-    if event.get('type') == 'message' and get_channel_name(event.get('channel')) == CHANNEL:
-        msg = event.get('text')
-        print(msg)
+        #play stream
+        while data:
+            stream.write(data)
+            data = f.readframes(chunk)
 
-def listen_to_chan():
-    if sc.rtm_connect():
-        print('Slack client connected...')
-        while True:
-            events = sc.rtm_read()
-            for event in events:
-                handle_event(event)
-            time.sleep(0.1)
-    else:
-        print('Connection to Slack failed.')
+        #stop stream
+        stream.stop_stream()
+        stream.close()
+
+        #close PyAudio
+        p.terminate()
+
+
+class SlackListener:
+    def __init__(self):
+        self.token = os.environ.get('SLACK_BOT_TOKEN')
+        self.channel = 'outage'
+
+        # initialize slack client
+        self.sc = slackclient.SlackClient(self.token)
+
+        # check if everything is alright
+        is_ok = self.sc.api_call("users.list").get('ok')
+        print(is_ok)
+
+    def get_channel_name(self, channel_id):
+        channel_info = self.sc.api_call("channels.info", channel=channel_id)
+        return channel_info["channel"]["name"]
+
+    def write_to_chan(self, msg):
+        self.sc.api_call(
+                "chat.postMessage",
+                channel="#"+self.channel,
+                text=msg)
+
+    def handle_event(self, event):
+        #print(event)
+        if event.get('type') == 'message' and self.get_channel_name(event.get('channel')) == self.channel:
+            msg = event.get('text')
+            print(msg)
+
+            watson = TextToSpeech()
+            response = watson.synthesize(msg, "american_f_1")
+            response.raise_for_status()
+
+            voice = AudioPlayer()
+            voice.say(response.content)
+
+    def listen_to_chan(self):
+        if self.sc.rtm_connect():
+            print('Slack client connected...')
+            while True:
+                events = self.sc.rtm_read()
+                for event in events:
+                    self.handle_event(event)
+                time.sleep(0.1)
+        else:
+            print('Connection to Slack failed.')
+
 
 if __name__=='__main__':
-    write_to_chan("Ready to call an outage :red_circle:")
-    listen_to_chan()
+    slack_listener = SlackListener()
+    slack_listener.write_to_chan("Ready to call an outage :red_circle:")
+    slack_listener.listen_to_chan()
