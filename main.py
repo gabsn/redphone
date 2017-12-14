@@ -79,9 +79,32 @@ class SlackListener:
         is_ok = self.sc.api_call("users.list").get('ok')
         print(is_ok)
 
+    def get_voice(self, user):
+        name = self.get_user_name(user)
+        if name == 'Vlad':
+            return 'german_m'
+        elif name == 'Isabelle Sauve':
+            return 'american_f_1'
+        elif name == 'Gabin Marignier':
+            return 'french'
+        elif name == 'Léo Cavaillé':
+            return 'italian'
+        elif name == 'Capitaine Vélo':
+            return 'japanese'
+        elif name == 'Youpinadi':
+            return 'latin_spanish'
+        elif name == 'Stefano':
+            return 'portuguese'
+        else:
+            return 'american_m'
+
     def get_channel_name(self, channel_id):
         channel_info = self.sc.api_call("channels.info", channel=channel_id)
-        return channel_info["channel"]["name"]
+        return channel_info.get("channel", {}).get('name', '')
+
+    def get_user_name(self, user_id):
+        user_info = self.sc.api_call("users.info", user=user_id)
+        return user_info.get("user", {}).get("profile", {}).get("real_name", '')
 
     def write_to_chan(self, msg):
         self.sc.api_call(
@@ -90,17 +113,17 @@ class SlackListener:
                 text=msg)
 
     def handle_event(self, event):
-        #print(event)
         if event.get('type') == 'message' and self.get_channel_name(event.get('channel')) == self.channel:
             msg = event.get('text')
             print(msg)
 
             watson = TextToSpeech()
-            response = watson.synthesize(msg, "american_f_1")
+            voice = self.get_voice(event.get('user'))
+            response = watson.synthesize(msg, voice)
             response.raise_for_status()
 
-            voice = AudioPlayer()
-            voice.say(response.content)
+            speaker = AudioPlayer()
+            speaker.say(response.content)
 
     def listen_to_chan(self):
         if self.sc.rtm_connect():
